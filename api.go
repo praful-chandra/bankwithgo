@@ -14,7 +14,7 @@ func (s *APIServer) Run() {
 	router := mux.NewRouter()
 
 	router.HandleFunc("/account", makeHTTPHandleFunc(s.handleAccount))
-	router.HandleFunc("/account/{id}", makeHTTPHandleFunc(s.handleGetAccountById))
+	router.HandleFunc("/account/{id}", makeHTTPHandleFunc(s.handleAccountById))
 
 	log.Println("JSON API srver Runnning on port :", s.listenAddr)
 	http.ListenAndServe(s.listenAddr, router)
@@ -26,6 +26,16 @@ func (s *APIServer) handleAccount(w http.ResponseWriter, r *http.Request) error 
 	}
 	if r.Method == "POST" {
 		return s.handleCreateAccount(w, r)
+	}
+	if r.Method == "DELETE" {
+		return s.handleDeleteAccount(w, r)
+	}
+
+	return fmt.Errorf("method not allowed %s", r.Method)
+}
+func (s *APIServer) handleAccountById(w http.ResponseWriter, r *http.Request) error {
+	if r.Method == "GET" {
+		return s.handleGetAccountById(w, r)
 	}
 	if r.Method == "DELETE" {
 		return s.handleDeleteAccount(w, r)
@@ -45,7 +55,7 @@ func (s *APIServer) handleGetAccount(w http.ResponseWriter, r *http.Request) err
 func (s *APIServer) handleGetAccountById(w http.ResponseWriter, r *http.Request) error {
 	id, err := strconv.Atoi(mux.Vars(r)["id"])
 	if err != nil {
-		log.Fatal(err)
+		return WriteJSON(w, http.StatusBadRequest, APIError{Error: "unable to fetch requested data"})
 	}
 	account, err := s.store.GetAccountByID(id)
 
@@ -64,6 +74,8 @@ func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) 
 		return err
 	}
 
+	r.Body.Close()
+
 	account := NewAccount(createAccountReq.FirstName, createAccountReq.LastName)
 
 	if err := s.store.CreateAccount(account); err != nil {
@@ -73,7 +85,20 @@ func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) 
 	return WriteJSON(w, http.StatusOK, account)
 }
 func (s *APIServer) handleDeleteAccount(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, APIError{Error: "unable to perform the requested action"})
+	}
+
+	deleteError := s.store.DeleteAccount(id)
+
+	if deleteError != nil {
+		return WriteJSON(w, http.StatusBadRequest, APIError{Error: "unable to perform the requested action"})
+	}
+
+	return WriteJSON(w, http.StatusOK, APISuccess{Message: "successfully deleted the account"})
+
 }
 func (s *APIServer) handleTransfer(w http.ResponseWriter, r *http.Request) error {
 	return nil
@@ -89,6 +114,10 @@ type apiFunc func(http.ResponseWriter, *http.Request) error
 
 type APIError struct {
 	Error string `json:"errorMessage"`
+}
+
+type APISuccess struct {
+	Message string `json:"message"`
 }
 
 func makeHTTPHandleFunc(f apiFunc) http.HandlerFunc {
